@@ -1,0 +1,13 @@
+google-colab
+tensorflow
+opencv-python
+os
+pathlib
+matplotlib
+random
+io
+imageio
+glob
+scipy
+numpy
+PIL
