@@ -18,6 +18,8 @@ from PIL import Image, ImageDraw, ImageFont
 from IPython.display import display, Javascript
 from IPython.display import Image as IPyImage
 
+from utils import plot_detections
+
 from object_detection.utils import label_map_util
 from object_detection.utils import config_util
 from object_detection.utils import visualization_utils as viz_utils
@@ -28,10 +30,8 @@ from object_detection.builders import model_builder
 def load_image_into_numpy_array(path):
     """
     Loads an image from file into a numpy array.
-
     Args:
       path: a file path
-
     Returns:
       uint8 numpy array with shape (img_height, img_width, 3), where 3 is the channels of RGB
     """
@@ -40,33 +40,6 @@ def load_image_into_numpy_array(path):
     (im_width, im_height) = image.size
     return np.array(image.getdata()).reshape((im_height, im_width, 3)).astype(np.uint8)
 
-def plot_detections(image_np, boxes, classes, scores, category_index, figsize=(12, 16), image_name=None):
-    """
-    Visualize detections
-
-    Args:
-        image_np: uint8 numpy array with shape (img_height, img_width, 3)
-        boxes: a numpy array of shape [N, 4]
-        classes: a numpy array of shape [N]. Note that class indices are 1-based, and match the keys in the label map
-        scores: a numpy array pf shape [N] or None. If scores=None, then this function assumes that hte boses
-         to be plotted are groundtruth boxes and plot all boxes as black with no classes or scores.
-        category_index: a dict containing category dictionaries (each holding categori index 'id' and category name
-         'name) keyed by category indices/
-        figsize: size for the figure.
-        image_name: a name for the image file
-    """
-    image_np_with_annotations = image_np.copy()
-    viz_utils.visualize_boxes_and_labels_on_image_array(image_np_with_annotations,
-                                                        boxes,
-                                                        classes,
-                                                        scores,
-                                                        category_index,
-                                                        use_normalized_coordinates=True,
-                                                        min_score_thresh=0.8)
-    if image_name:
-        plt.imsave(image_name, image_np_with_annotations)
-    else:
-        plt.imshow(image_np_with_annotations)
 
 # load training set images
 train_image_dir = 'models/research/object_detection/test_images/ducky/train/'
@@ -189,7 +162,7 @@ tf.keras.backend.set_learning_phase(True)
 # fit more examples in memory if we wanted to.
 batch_size = 4
 learning_rate = 0.01
-num_batches = 100
+num_batches = 25
 
 # Select variables in top layers to fine-tune.
 trainable_variables = detection_model.trainable_variables
@@ -213,7 +186,6 @@ def get_model_train_step_function(model, optimizer, vars_to_fine_tune):
                     groundtruth_boxes_list,
                     groundtruth_classes_list):
     """A single training iteration.
-
     Args:
       image_tensors: A list of [1, height, width, 3] Tensor of type tf.float32.
         Note that the height and width can vary across images, as they are
@@ -223,7 +195,6 @@ def get_model_train_step_function(model, optimizer, vars_to_fine_tune):
       groundtruth_classes_list: A list of Tensors of shape [N_i, num_classes]
         with type tf.float32 representing groundtruth boxes for each image in
         the batch.
-
     Returns:
       A scalar tensor representing the total loss for the input batch.
     """
@@ -272,61 +243,3 @@ for idx in range(num_batches):
 print('Done fine-tuning!')
 
 
-# load test images and run inference with new model
-test_image_dir = 'models/research/object_detection/test_images/ducky/test/'
-test_images_np = []
-for i in range(1, 50):
-  image_path = os.path.join(test_image_dir, 'out' + str(i) + '.jpg')
-  test_images_np.append(np.expand_dims(
-      load_image_into_numpy_array(image_path), axis=0))
-
-# Again, uncomment this decorator if you want to run inference eagerly
-@tf.function
-def detect(input_tensor):
-  """Run detection on an input image.
-
-  Args:
-    input_tensor: A [1, height, width, 3] Tensor of type tf.float32.
-      Note that height and width can be anything since the image will be
-      immediately resized according to the needs of the model within this
-      function.
-
-  Returns:
-    A dict containing 3 Tensors (`detection_boxes`, `detection_classes`,
-      and `detection_scores`).
-  """
-  preprocessed_image, shapes = detection_model.preprocess(input_tensor)
-  prediction_dict = detection_model.predict(preprocessed_image, shapes)
-  return detection_model.postprocess(prediction_dict, shapes)
-
-# Note that the first frame will trigger tracing of the tf.function, which will
-# take some time, after which inference should be fast.
-
-label_id_offset = 1
-for i in range(len(test_images_np)):
-  input_tensor = tf.convert_to_tensor(test_images_np[i], dtype=tf.float32)
-  detections = detect(input_tensor)
-
-  plot_detections(
-      test_images_np[i][0],
-      detections['detection_boxes'][0].numpy(),
-      detections['detection_classes'][0].numpy().astype(np.uint32)
-      + label_id_offset,
-      detections['detection_scores'][0].numpy(),
-      category_index, figsize=(15, 20), image_name="gif_frame_" + ('%02d' % i) + ".jpg")
-
-imageio.plugins.freeimage.download()
-
-anim_file = 'duckies_test.gif'
-
-filenames = glob.glob('gif_frame_*.jpg')
-filenames = sorted(filenames)
-last = -1
-images = []
-for filename in filenames:
-  image = imageio.imread(filename)
-  images.append(image)
-
-imageio.mimsave(anim_file, images, 'GIF-FI', fps=5)
-
-display(IPyImage(open(anim_file, 'rb').read()))
